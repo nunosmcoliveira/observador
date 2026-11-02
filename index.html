@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="pt-PT"><head><meta charset="utf-8">
+<html lang="pt-PT"><head><meta charset="utf-8"><meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <meta name="theme-color" content="#0e1014"><meta name="apple-mobile-web-app-capable" content="yes">
 <title>Observador de Árbitros</title>
@@ -407,6 +407,10 @@ details.mdet[open]>summary{margin-bottom:8px}
 }
 @media (max-width:700px){ .toast{top:calc(10px + env(safe-area-inset-top));bottom:auto!important} }
 @media (max-width:700px){ .whint,.wopts kbd,.wtags kbd,.kbdonly{display:none!important} }
+.ytbox{position:absolute;inset:0;transform-origin:0 0;will-change:transform}
+.ytbox iframe{width:100%;height:100%;border:0;display:block;pointer-events:none}
+.ytov{position:absolute;inset:0;z-index:2;cursor:pointer}
+.vstage .empty{position:relative;z-index:3}
 </style></head>
 <body><div id="app"></div>
 <script>/*!
@@ -964,7 +968,7 @@ function vSetup() {
   const started = g.clock.phase !== 'pre';
   const [hh, mi] = (g.hora || '15:00').split(':').map(Number);
   const col = { A: g.teams.A.color, B: g.teams.B.color };
-  let mode = g.mode; let ent = entOf(g);
+  let mode = g.mode; let ent = entOf(g); let vsrc = g.video?.yt ? 'yt' : 'file';
   app().innerHTML = `<div class="topbar"><button class="ghost sm" data-a="back">‹ Voltar</button><div class="brand grow">${isNew ? 'Novo jogo' : 'Dados do jogo'}</div><button class="pri sm" data-a="save">${isNew ? 'Criar e abrir' : 'Guardar'}</button></div>
   <div class="wrap">
    <div class="card">
@@ -1016,6 +1020,10 @@ function vSetup() {
       <div><label class="f">Painel</label><select id="f_panel" ${g.panel ? 'disabled' : ''}>${S.panels.map(p => `<option value="${p.id}" ${p.id === g.panelId ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
     </div>
     <p class="muted small" id="modehelp"></p>
+    <div class="fgrid ${g.mode === 'video' ? '' : 'hide'}" id="vsrcbox">
+      <div><label class="f">Vídeo</label><div class="seg" id="f_vsrc"><button data-vs="file" class="${g.video?.yt ? '' : 'on'}">Ficheiro</button><button data-vs="yt" class="${g.video?.yt ? 'on' : ''}">Link do YouTube</button></div></div>
+      <div id="ytin" class="${g.video?.yt ? '' : 'hide'}" style="grid-column:span 2"><label class="f">Link do YouTube</label><input id="f_yt" value="${esc(g.video?.url || (g.video?.yt ? 'https://youtu.be/' + g.video.yt : ''))}" placeholder="https://www.youtube.com/watch?v=..."></div>
+    </div>
     ${g.panel ? `<div class="row w"><span class="muted small grow">Este jogo usa a versão do painel que existia quando o criaste.</span><button class="ghost sm" data-a="repanel">Usar a versão atual do painel</button></div>` : ''}
    </div>
    ${isNew ? '' : '<div class="row" style="margin-top:14px"><span class="grow"></span><button class="danger sm" data-a="del">Apagar jogo</button></div>'}
@@ -1038,14 +1046,17 @@ function vSetup() {
   app().oninput = e => { const cc = e.target.dataset.cc; if (cc) { col[cc] = e.target.value; $$(`[data-sw="${cc}"] .sw`).forEach(b => b.classList.toggle('on', b.classList.contains('custom'))); } };
   app().onclick = async e => {
     const sw = e.target.closest('.sw[data-c]'); if (sw) { const t = sw.parentElement.dataset.sw; col[t] = sw.dataset.c; $$(`[data-sw="${t}"] .sw`).forEach(b => b.classList.toggle('on', b === sw)); return; }
-    const eb = e.target.closest('[data-ent]'); if (eb) { ent = eb.dataset.ent; $$('#f_ent button').forEach(b => b.classList.toggle('on', b === eb)); if (ent === 'vis' && !started) { mode = 'video'; $$('#f_mode button').forEach(b => b.classList.toggle('on', b.dataset.m === 'video')); help(); if (!$('#f_cat').value) $('#f_cat').value = 'C4'; } entUI(); return; }
-    const m = e.target.closest('[data-m]'); if (m && !m.disabled) { mode = m.dataset.m; $$('#f_mode button').forEach(b => b.classList.toggle('on', b === m)); help(); return; }
+    const eb = e.target.closest('[data-ent]'); if (eb) { ent = eb.dataset.ent; $$('#f_ent button').forEach(b => b.classList.toggle('on', b === eb)); if (ent === 'vis' && !started) { mode = 'video'; $$('#f_mode button').forEach(b => b.classList.toggle('on', b.dataset.m === 'video')); $('#vsrcbox').classList.toggle('hide', false); help(); if (!$('#f_cat').value) $('#f_cat').value = 'C4'; } entUI(); return; }
+    const vsb = e.target.closest('[data-vs]'); if (vsb) { vsrc = vsb.dataset.vs; $$('#f_vsrc button').forEach(b => b.classList.toggle('on', b === vsb)); $('#ytin').classList.toggle('hide', vsrc !== 'yt'); if (vsrc === 'yt') $('#f_yt').focus(); return; }
+    const m = e.target.closest('[data-m]'); if (m && !m.disabled) { mode = m.dataset.m; $$('#f_mode button').forEach(b => b.classList.toggle('on', b === m)); $('#vsrcbox').classList.toggle('hide', mode !== 'video'); help(); return; }
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'back') { if (isNew) go('home'); else go(S.backTo || 'live'); }
     if (a === 'del') { if (await ask('Apagar este jogo e todos os incidentes?', 'Apagar', true)) { await DB.del('games', g.id); unmirrorGame(g.id); S.g = null; go('home'); } }
     if (a === 'repanel') { if (await ask('Trocar o painel deste jogo pela versão atual? Os incidentes já registados mantêm-se.', 'Trocar')) { const p = S.panels.find(p => p.id === g.panelId); if (p) { g.panel = clone(p); saveGame(true); toast('Painel atualizado'); } } }
     if (a === 'save') {
       const v = id => $('#' + id).value.trim();
+      if (mode === 'video' && vsrc === 'yt') { const id = ytId(v('f_yt')); if (!id) { toast('Põe um link do YouTube válido (ou escolhe Ficheiro).'); $('#f_yt').focus(); return; } if (g.video?.yt !== id) g.video = { yt: id, url: v('f_yt'), name: 'YouTube' }; }
+      else if (g.video?.yt) g.video = null;
       Object.assign(g, { epoca: v('f_epoca'), competicao: v('f_competicao'), jornada: v('f_jornada'), data: v('f_data') || todayISO(), hora: `${pad(v('f_hh'))}:${pad(v('f_mi'))}`, local: v('f_local'), descricao: v('f_descricao'), aa1: v('f_aa1'), aa2: v('f_aa2'), quarto: v('f_quarto'), mode, ent, codigo: ent === 'afl' ? (g.codigo || '') : v('f_codigo'), cat: ent === 'afl' ? (g.cat || '') : $('#f_cat').value, vfonte: $('#f_vfonte').value });
       if (S.settings.ent !== ent) { S.settings.ent = ent; DB.put('kv', S.settings); }
       g.teams.A.name = v('f_tA') || 'Equipa A'; g.teams.B.name = v('f_tB') || 'Equipa B'; g.teams.A.color = col.A; g.teams.B.color = col.B;
@@ -1062,6 +1073,60 @@ function vSetup() {
 /* =========================================================
    LEITOR DE VÍDEO
    ========================================================= */
+
+/* ---------- YouTube (vídeo por link) ---------- */
+function ytId(u) {
+  u = String(u || '').trim(); if (/^[\w-]{11}$/.test(u)) return u;
+  const m = u.match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/))([\w-]{11})/); return m ? m[1] : null;
+}
+let YT_READY = null;
+function loadYT() {
+  if (window.YT && YT.Player) return Promise.resolve();
+  if (YT_READY) return YT_READY;
+  YT_READY = new Promise((res, rej) => {
+    const prev = window.onYouTubeIframeAPIReady; window.onYouTubeIframeAPIReady = () => { prev && prev(); res(); };
+    const sc = document.createElement('script'); sc.src = 'https://www.youtube.com/iframe_api'; sc.onerror = () => { YT_READY = null; rej(new Error('net')); }; document.head.appendChild(sc);
+  });
+  return YT_READY;
+}
+class YTVideo {
+  constructor(box, id, onFail) {
+    this.box = box; this.id = id; this.src = ''; this.readyState = 0; this.ls = {}; this._paused = true; this._rate = 1; this.onFail = onFail;
+    const inner = document.createElement('div'); box.appendChild(inner);
+    loadYT().then(() => {
+      this.p = new YT.Player(inner, { videoId: id, width: '100%', height: '100%', playerVars: { controls: 0, rel: 0, playsinline: 1, disablekb: 1, modestbranding: 1, iv_load_policy: 3, fs: 0, origin: location.origin },
+        events: {
+          onReady: () => { this.readyState = 4; this.src = 'yt:' + id; this.emit('loadedmetadata'); this.emit('timeupdate'); },
+          onStateChange: e => { const st = e.data; const was = this._paused; this._paused = !(st === 1 || st === 3); this.ended = st === 0; if (was !== this._paused) this.emit(this._paused ? 'pause' : 'play'); this.emit('timeupdate'); },
+          onError: e => { const c = e.data; this.onFail && this.onFail(c === 101 || c === 150 || c === 153 ? 'O dono deste vídeo não permite vê-lo fora do YouTube (ou estás a abrir a aplicação a partir do ficheiro e não do endereço https).' : c === 100 ? 'Vídeo não encontrado ou privado.' : 'Não foi possível abrir este vídeo do YouTube.'); }
+        } });
+    }).catch(() => this.onFail && this.onFail('Sem ligação ao YouTube. Verifica a internet.'));
+    this.tick = setInterval(() => { if (!this._paused) this.emit('timeupdate'); }, 250);
+  }
+  emit(ev) { (this.ls[ev] || []).forEach(f => { try { f(); } catch (e) { } }); }
+  addEventListener(ev, f, o) { (this.ls[ev] ||= []).push(o && o.once ? function w() { f(); } : f); }
+  get currentTime() { try { return this.p?.getCurrentTime?.() || 0; } catch (e) { return 0; } }
+  set currentTime(t) { try { this.p.seekTo(Math.max(0, t), true); setTimeout(() => { this.emit('timeupdate'); this.emit('seeked'); }, 120); } catch (e) { } }
+  get duration() { try { return this.p?.getDuration?.() || 0; } catch (e) { return 0; } }
+  get paused() { return this._paused; }
+  play() { try { this.p.playVideo(); this._paused = false; this.emit('play'); } catch (e) { } return Promise.resolve(); }
+  pause() { try { this.p.pauseVideo(); this._paused = true; this.emit('pause'); } catch (e) { } }
+  get playbackRate() { return this._rate; }
+  set playbackRate(r) { r = Math.max(0.25, Math.min(2, r)); this._rate = r; try { this.p.setPlaybackRate(r); } catch (e) { } }
+  get style() { return this.box.style; }
+  getBoundingClientRect() { return this.box.getBoundingClientRect(); }
+  destroy() { clearInterval(this.tick); try { this.p?.destroy(); } catch (e) { } }
+}
+function ytModal(onOk) {
+  const m = openModal(`<div class="sheethd"><span class="ttl grow">Vídeo do YouTube</span></div>
+    <label class="f">Link do vídeo</label><input id="ytu" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+    <p class="small muted">Precisas de internet. Funciona a partir do endereço https da aplicação (não abrindo o ficheiro diretamente). Alguns vídeos não permitem ser vistos fora do YouTube.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="ghost" data-x>Cancelar</button><button class="pri" data-ok2>Usar este vídeo</button></div>`, { center: true });
+  setTimeout(() => $('#ytu', m)?.focus(), 50);
+  const go2 = () => { const id = ytId($('#ytu', m).value); if (!id) return toast('Link do YouTube inválido'); m.parentElement._onClose = null; closeModal(m); onOk(id, $('#ytu', m).value.trim()); };
+  m.addEventListener('click', e => { if (e.target.closest('[data-x]')) closeModal(m); if (e.target.closest('[data-ok2]')) go2(); });
+  m.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go2(); } });
+}
 class Player {
   constructor(host, g) {
     this.g = g; this.z = 1; this.tx = 0; this.ty = 0;
@@ -1081,12 +1146,20 @@ class Player {
         <span class="tc">00:00 / 00:00</span>
       </div></div>`;
     this.wrap = $('.vwrap', host); this.v = $('video', host); this.stage = $('.vstage', host); this.seek = $('.vseek', host); this.tc = $('.tc', host);
+    if (g.video?.yt) {
+      this.yt = true; this.v.remove(); $('[data-v=pop]', this.wrap).classList.add('hide'); $('[data-v=file]', this.wrap).textContent = 'Trocar vídeo';
+      $('select', this.wrap).innerHTML = [0.25, 0.5, 0.75, 1, 1.5, 2].map(r => `<option value="${r}" ${r === 1 ? 'selected' : ''}>${r}x</option>`).join('');
+      const box = document.createElement('div'); box.className = 'ytbox'; this.stage.prepend(box); const ov = document.createElement('div'); ov.className = 'ytov'; this.stage.appendChild(ov);
+      if (location.protocol === 'file:') this.v = { src: '', readyState: 0, paused: true, currentTime: 0, duration: 0, style: box.style, addEventListener() { }, play() { return Promise.resolve(); }, pause() { }, getBoundingClientRect: () => box.getBoundingClientRect(), destroy() { } };
+      else this.v = new YTVideo(box, g.video.yt, msg => { const em = $('.empty', this.wrap); if (em) { em.classList.remove('hide'); em.innerHTML = `<p>${esc(msg)}</p><p><button class="ghost sm" data-v="yt">Outro link do YouTube</button> <button class="ghost sm" data-v="file">Escolher ficheiro</button></p>`; } });
+    }
     this.bind();
   }
   emptyHtml() {
     const g = this.g;
+    if (g.video?.yt) return location.protocol === 'file:' ? `<p><b>Abriste a aplicação a partir do ficheiro.</b> O YouTube só deixa ver o vídeo aqui quando abres a aplicação pelo endereço https (o teu site do GitHub). Os jogos do ficheiro e do site ficam separados: usa "Exportar tudo" e "Importar cópia" para os passar.</p><p><a class="btn" href="https://www.youtube.com/watch?v=${esc(g.video.yt)}" target="_blank" rel="noopener">Abrir o vídeo no YouTube</a> <button class="ghost sm" data-v="file">Usar um ficheiro de vídeo</button></p>` : '<p>A carregar o vídeo do YouTube…</p>';
     return g.video?.handle ? `<p>Vídeo: <b>${esc(g.video.name)}</b></p><button class="pri" data-v="reopen">Reabrir vídeo</button><p><button class="ghost sm" data-v="file">Escolher outro ficheiro</button></p>`
-      : `<p>${g.video?.name ? `Volta a escolher o vídeo <b>${esc(g.video.name)}</b>` : 'Carrega o vídeo do jogo'}</p><button class="pri" data-v="file">Escolher vídeo</button><p class="small">O vídeo não sai do teu computador.</p>`;
+      : `<p>${g.video?.name ? `Volta a escolher o vídeo <b>${esc(g.video.name)}</b>` : 'Carrega o vídeo do jogo'}</p><button class="pri" data-v="file">Escolher vídeo</button> <button class="ghost" data-v="yt">Link do YouTube</button><p class="small">O ficheiro de vídeo não sai do teu computador.</p>`;
   }
   ok() { return !!this.v.src && this.v.readyState >= 1; }
   bind() {
@@ -1103,12 +1176,13 @@ class Player {
       if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; this.setZoom(pinch.z * Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / pinch.d); return; }
       if (drag && this.z > 1) { drag.moved = true; this.tx = drag.tx + (e.clientX - drag.x); this.ty = drag.ty + (e.clientY - drag.y); this.apply(); }
     });
-    const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) { if (drag && !drag.moved && e.target === v) this.cmd('play'); drag = null; } };
+    const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) { if (drag && !drag.moved && (e.target === v || e.target.classList?.contains('ytov'))) this.cmd('play'); drag = null; } };
     this.stage.addEventListener('pointerup', up); this.stage.addEventListener('pointercancel', up);
   }
   async cmd(c) {
     const v = this.v, fps = S.settings.fps || 25;
-    if (c === 'file') return this.pick();
+    if (c === 'file') return this.ok() || this.yt ? this.switchSource() : this.pick();
+    if (c === 'yt') return ytModal((id, url) => this.useYT(id, url));
     if (c === 'reopen') return this.reopen();
     if (!this.ok()) return;
     if (c === 'play') v.paused ? v.play() : v.pause();
@@ -1117,7 +1191,7 @@ class Player {
     if (c === 'b10') v.currentTime = Math.max(0, v.currentTime - 5);
     if (c === 'f10') v.currentTime = Math.min(v.duration, v.currentTime + 5);
     if (c === 'zi') this.setZoom(this.z * 1.25); if (c === 'zo') this.setZoom(this.z / 1.25); if (c === 'z1') { this.z = 1; this.tx = this.ty = 0; this.apply(); }
-    if (c === 'pop') this.popout();
+    if (c === 'pop') { if (this.yt) return toast('Com vídeo do YouTube não dá para abrir numa janela à parte.'); this.popout(); }
     if (c === 'rup' || c === 'rdn') { const rates = [0.25, 0.5, 0.75, 1, 1.5, 2, 3]; let i = rates.indexOf(v.playbackRate); if (i < 0) i = 3; i = Math.max(0, Math.min(rates.length - 1, i + (c === 'rup' ? 1 : -1))); v.playbackRate = rates[i]; $('select', this.wrap).value = rates[i]; toast(`Velocidade ${rates[i]}x`, 900); }
     this.ui();
   }
@@ -1128,6 +1202,15 @@ class Player {
     this.tx -= px * (f - 1); this.ty -= py * (f - 1); this.z = nz; if (nz === 1) { this.tx = this.ty = 0; } this.apply();
   }
   apply() { this.v.style.transform = `translate(${this.tx}px,${this.ty}px) scale(${this.z})`; }
+  switchSource() {
+    const m = openModal(`<div class="sheethd"><span class="ttl grow">Trocar vídeo</span></div><div style="display:grid;gap:8px"><button data-sw="yt">Outro link do YouTube</button><button data-sw="file">Ficheiro de vídeo do computador</button><button class="ghost" data-x>Cancelar</button></div>`, { center: true });
+    m.addEventListener('click', e => { if (e.target.closest('[data-x]')) return closeModal(m); const b = e.target.closest('[data-sw]'); if (!b) return; closeModal(m); if (b.dataset.sw === 'yt') this.cmd('yt'); else if (this.yt) this.rebuild(null).pick(); else this.pick(); });
+  }
+  rebuild(video) {
+    const host = this.wrap.parentElement; this.g.video = video; saveGame(true); this.destroy();
+    player = new Player(host, this.g); if (S.view === 'live') { renderLiveBar(); renderPanel(); } return player;
+  }
+  useYT(id, url) { this.rebuild({ yt: id, url: url || '', name: 'YouTube' }); toast('Vídeo do YouTube associado'); }
   ui() {
     const v = this.v; const empty = $('.empty', this.wrap); if (empty) empty.classList.toggle('hide', !!v.src);
     $('[data-v=play]', this.wrap).textContent = v.paused ? '▶' : '❚❚';
@@ -1146,6 +1229,7 @@ class Player {
     try { if ((await h.queryPermission({ mode: 'read' })) !== 'granted' && (await h.requestPermission({ mode: 'read' })) !== 'granted') return; await this.useFile(await h.getFile(), h); } catch (e) { toast('Não foi possível reabrir. Escolhe o ficheiro.'); this.pick(); }
   }
   async useFile(f, handle) {
+    if (this.yt) return this.rebuild({ name: f.name }).useFile(f, handle);
     if (this.url) URL.revokeObjectURL(this.url);
     this.url = URL.createObjectURL(f); this.v.src = this.url; this.file = f;
     this.g.video = { name: f.name, size: f.size, handle: handle || null }; saveGame(true);
@@ -1164,7 +1248,7 @@ class Player {
     w.addEventListener('pagehide', () => { wrap.style.height = oldH; restore(); }); w.addEventListener('keydown', onKey);
     this.popped = w; $('.live')?.classList.add('popped'); if (S.view === 'live') renderPanel(); toast('Vídeo numa janela à parte. Fecha-a para voltar.');
   }
-  destroy() { try { this.popped?.close(); } catch (e) { } if (this.url) URL.revokeObjectURL(this.url); }
+  destroy() { try { this.popped?.close(); } catch (e) { } if (this.url) URL.revokeObjectURL(this.url); if (this.yt) this.v.destroy(); }
 }
 function attachPlayer(host, g) {
   if (player && player.g === g) { if (!player.popped) host.append(player.wrap); else host.innerHTML = '<div class="card small muted" style="margin:6px">O vídeo está numa janela à parte.</div>'; player.ui(); return player; }
@@ -2272,7 +2356,7 @@ function msgCard(g) {
     ${ta('email', 'Email com os lances (sem a nota)', email, 8)}</div>`;
 }
 function tabExp() {
-  const g = S.g; const hasClips = g.incidents.some(i => incVT(g, i) != null);
+  const g = S.g; const hasClips = !g.video?.yt && g.incidents.some(i => incVT(g, i) != null);
   const canRec = !!(HTMLMediaElement.prototype.captureStream || HTMLMediaElement.prototype.mozCaptureStream) && window.MediaRecorder;
   const first = sortedInc(g).find(i => incVT(g, i) != null);
   $('#tabc').innerHTML = `<div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
@@ -2284,7 +2368,7 @@ function tabExp() {
      ${hasClips ? `<p class="small muted">Um clip por incidente (${S.settings.before} s antes e ${S.settings.after} s depois), com nomes do tipo <code>${esc(clipName(g, first))}.mp4</code>.</p>
      <p class="small"><b>Opção 1 (recomendada):</b> um script corta todos os clips com o ffmpeg, rápido e com a qualidade original. Guarda-o na pasta do vídeo e faz duplo clique.</p>
      <div class="row w"><button data-a="bat">Script Windows (.bat)</button><button class="ghost" data-a="sh">Script Mac/Linux (.sh)</button></div>
-     ${canRec ? `<p class="small" style="margin-top:14px"><b>Opção 2:</b> gravar os clips aqui no browser (.webm). Demora o tempo real de cada clip e precisa do vídeo carregado no passo 1 (Lances).</p><button class="ghost" data-a="recall">Gravar todos os clips</button>` : ''}` : '<p class="small muted">Sem clips: este jogo não tem vídeo associado.</p>'}</div>
+     ${canRec ? `<p class="small" style="margin-top:14px"><b>Opção 2:</b> gravar os clips aqui no browser (.webm). Demora o tempo real de cada clip e precisa do vídeo carregado no passo 1 (Lances).</p><button class="ghost" data-a="recall">Gravar todos os clips</button>` : ''}` : (g.video?.yt ? '<p class="small muted">Sem clips: os vídeos do YouTube não permitem cortar nem gravar clips. Na revisão podes rever cada lance com "▶ Ver lance".</p>' : '<p class="small muted">Sem clips: este jogo não tem vídeo associado.</p>')}</div>
    <div class="card"><h3 style="margin-top:0">Cópia do jogo</h3><p class="small muted">Ficheiro com o jogo completo. Serve para o abrires noutro dispositivo (em "Importar cópia", no ecrã inicial) ou para o guardares em segurança.</p><button class="ghost" data-a="json">Exportar jogo (.json)</button>
      <p class="small muted" style="margin-top:14px">Lista de incidentes para Excel:</p><button class="ghost" data-a="csv">Exportar incidentes (.csv)</button></div></div>`;
 }
