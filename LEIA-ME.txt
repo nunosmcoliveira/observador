@@ -1,0 +1,31 @@
+OBSERVADOR AFL - registo de jogo e relatório (funciona sem internet)
+
+NO COMPUTADOR
+- Abre o ficheiro index.html no Chrome ou no Edge (duplo clique). Não precisas de internet.
+- Os jogos ficam guardados nesse browser, nesse computador. Usa "Exportar tudo" de vez em quando como cópia de segurança.
+
+NO TELEMÓVEL / TABLET (instalar como app)
+1. Põe estes 4 ficheiros (index.html, sw.js, manifest.webmanifest, icon.svg) num alojamento https,
+   por exemplo GitHub Pages (grátis): novo repositório > carregar os ficheiros > Settings > Pages.
+2. Abre o endereço no telemóvel uma vez com internet e escolhe "Adicionar ao ecrã principal".
+3. A partir daí abre e funciona sem rede.
+
+PASSAR UM JOGO DE UM DISPOSITIVO PARA OUTRO
+No dispositivo onde registaste: Revisão > Exportar > "Exportar jogo". Envia o ficheiro (WhatsApp, email...).
+No outro dispositivo: ecrã inicial > "Importar cópia".
+
+TECLAS (computador)
+Painel: A amarelo · V vermelho · P penálti · G golo · O possível PP · F fora de jogo · T falta/vantagem
+        C gestão/conflito · M colocação · E trabalho de equipa · B cartão branco · X outros  (editáveis em Painéis)
+I: jogo interrompido (liga/desliga) · 1 / 2: falta da equipa A / B · S: substituição
+Lance novo (um passo de cada vez): 1 a 9 escolhem a opção do passo · números + A/B = nº e equipa do jogador · Enter ou Espaço = seguinte · Backspace = passo anterior · R = voz (antes do último passo, ao parar, guarda o lance para rever no fim) · Esc = fechar
+Vídeo: Espaço play/pausa · ← → frame a frame · Shift + ← → 5 s · ↑ ↓ velocidade · + - 0 zoom
+
+CLIPS
+O script .bat/.sh (Revisão > Exportar) corta todos os clips com o ffmpeg. Para instalar no Windows: winget install ffmpeg
+
+CÓPIA AUTOMÁTICA (computador)
+Definições > Cópia automática: escolhe uma pasta (por exemplo no OneDrive ou Google Drive) e cada jogo é copiado para lá sempre que o alteras.
+Notas de voz ficam só no dispositivo onde foram gravadas (não vão no ficheiro de cópia).
+
+Tipo de observação (no Novo jogo): AF Lisboa, FPF ou FPF Visionador. Decide o relatório (PDF no layout oficial; Word para AF Lisboa e FPF), o Guia da nota sugerida e o botão "Guia AFL" ou "Guia FPF" na revisão. Na FPF, o passo Enviar prepara as mensagens para a Secção de Classificações; no Visionador, a mensagem de erro(s) relevante(s).
