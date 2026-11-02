@@ -370,6 +370,43 @@ button.mm.mmwarn{border-color:#a16207;color:#fbbf24}
 .micbar{display:block;height:5px;border-radius:3px;background:var(--line2);overflow:hidden;margin-top:6px}
 .micbar i{display:block;height:100%;width:0;background:#22c55e;transition:width .08s}
 .micbar.wide{margin-top:8px}
+/* ===== telemóvel ===== */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+.hamb,.hamb2{display:none;align-items:center;font-size:20px;line-height:1;min-width:42px;min-height:40px;padding:0 10px;justify-content:center}
+.mshow,.pill .sh{display:none}
+.pills{display:inline-flex;gap:6px;flex:0 0 auto}
+details.mdet>summary{cursor:pointer;font-weight:600;font-size:14px;padding:6px 0;list-style:revert}
+details.mdet[open]>summary{margin-bottom:8px}
+@media (max-width:700px){
+  input,select,textarea{font-size:16px!important}
+  .topbar{gap:8px;padding:8px 12px;min-height:52px}
+  .topbar .tb2,.tb2m{display:none!important}
+  .topbar .brand{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .topbar .brand span{display:none}
+  .topbar>.grow{min-width:0;overflow:hidden}
+  .topbar .muted.small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topbar button{white-space:nowrap;flex:0 0 auto}
+  .hamb{display:inline-flex}.hamb2{display:inline-flex}
+  .mhide{display:none}.mshow{display:inline}
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+  .steps button{justify-content:center;padding:5px 4px;gap:5px;font-size:12.5px;white-space:nowrap;min-width:0;border-radius:10px}
+  .steps button .n{width:20px;height:20px;font-size:11px;flex:0 0 auto}
+  .irow .ih{flex-wrap:wrap;gap:4px 8px;padding:10px 10px}
+  .irow .ih .m{width:auto;min-width:40px}
+  .irow .ih .lab{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;flex:1 1 0;min-width:0;line-height:1.3}
+  .irow .ih .pills{order:9;flex-basis:100%;padding-left:66px}
+  .irow .ih .pill{display:inline-flex!important;font-size:11px}
+  .pill .lf{display:none}.pill .sh{display:inline}
+  .irow .ih .delinc{order:5}
+  .irow .ih .chev{order:6}
+  .card{padding:14px}
+  .row.w{gap:8px}
+  .wrap{padding:12px}
+  h2{font-size:17px}
+  .stepnav button{flex:1 1 0}
+}
+@media (max-width:700px){ .toast{top:calc(10px + env(safe-area-inset-top));bottom:auto!important} }
+@media (max-width:700px){ .whint,.wopts kbd,.wtags kbd,.kbdonly{display:none!important} }
 </style></head>
 <body><div id="app"></div>
 <script>/*!
@@ -412,14 +449,20 @@ const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${pad(
 /* ---------------- armazenamento (IndexedDB com alternativa em memória) ---------------- */
 const DB = {
   db: null, mem: { games: {}, panels: {}, kv: {}, audio: {} },
-  open() {
+  async open() {
+    for (let attempt = 0; attempt < 3 && !this.db; attempt++) await this.open1(attempt ? 2500 : 4000);
+    try { if (navigator.storage?.persist) this.persisted = await navigator.storage.persist(); } catch (e) { }
+  },
+  open1(ms) {
     return new Promise(res => {
+      let done = false; const fin = () => { if (!done) { done = true; res(); } };
+      setTimeout(fin, ms);
       try {
         const rq = indexedDB.open('observador-afl', 2);
         rq.onupgradeneeded = () => { const d = rq.result; ['games', 'panels', 'kv', 'audio'].forEach(s => d.objectStoreNames.contains(s) || d.createObjectStore(s, { keyPath: 'id' })); };
-        rq.onsuccess = () => { this.db = rq.result; res(); };
-        rq.onerror = () => res();
-      } catch (e) { res(); }
+        rq.onsuccess = () => { if (done) { try { rq.result.close(); } catch (e) { } return; } this.db = rq.result; this.db.onversionchange = () => { try { this.db.close(); } catch (e) { } }; fin(); };
+        rq.onerror = fin; rq.onblocked = fin;
+      } catch (e) { fin(); }
     });
   },
   tx(store, mode, fn) {
@@ -517,11 +560,21 @@ let player = null, tickTimer = null, wakeLock = null, saveTimer = null, tickN = 
 
 async function setTheme(t) { S.settings.theme = t; document.documentElement.dataset.theme = t; await DB.put('kv', S.settings); }
 function toast(msg, ms = 2600) { const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), ms); }
-function saveGame(now = false) {
-  const g = S.g; if (!g) return; g.updated = Date.now(); clearTimeout(saveTimer);
-  const doit = () => { DB.put('games', { ...g }).catch(() => toast('Erro ao guardar neste dispositivo')); scheduleBackup(g); };
-  if (now) doit(); else saveTimer = setTimeout(doit, 300);
+const LS_KEY = 'observador-copia';
+function mirrorGame(g) {
+  try { const all = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); const c = { ...g }; delete c.videoHandle; all[g.id] = c; localStorage.setItem(LS_KEY, JSON.stringify(all)); return true; }
+  catch (e) { return false; }
 }
+function unmirrorGame(id) { try { const all = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); delete all[id]; localStorage.setItem(LS_KEY, JSON.stringify(all)); } catch (e) { } }
+let savePending = false;
+function saveGame(now = false) {
+  const g = S.g; if (!g) return; g.updated = Date.now(); clearTimeout(saveTimer); savePending = true;
+  const doit = () => { savePending = false; const m = mirrorGame(g); DB.put('games', { ...g }).catch(() => { if (!m) toast('Erro ao guardar neste dispositivo. Exporta uma cópia.', 5000); }); scheduleBackup(g); };
+  if (now) doit(); else saveTimer = setTimeout(doit, 250);
+}
+const flushSave = () => { if (savePending && S.g) saveGame(true); };
+addEventListener('pagehide', flushSave); addEventListener('beforeunload', flushSave);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
 function download(name, blob) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); }
 function slug(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').slice(0, 40); }
 
@@ -726,7 +779,8 @@ function autoMention(g, i) {
 }
 function mention(g, i) { return i.ment == null || i.ment === 'auto' ? autoMention(g, i) : +i.ment; }
 const MENT = ['Fora do relatório', 'No relatório', 'No relatório + 1.ª página'];
-function mentPill(g, i) { const m = mention(g, i); return `<span class="pill ${m === 2 ? 'ok' : ''}" title="No relatório">${MENT[m]}</span>`; }
+const MENT_SH = ['Fora', 'Relatório', '1.ª página'];
+function mentPill(g, i) { const m = mention(g, i); return `<span class="pill ${m === 2 ? 'ok' : ''}" title="No relatório"><span class="lf">${MENT[m]}</span><span class="sh">${MENT_SH[m]}</span></span>`; }
 function decPill(i) { if (i.tile === 'subs') return ''; const c = { pen: 'bad', rev: 'warn', val: 'ok' }[i.dec] || ''; return `<span class="pill ${c}">${DEC[i.dec] || ''}</span>`; }
 
 /* =========================================================
@@ -740,7 +794,12 @@ async function boot() {
   S.panels = await DB.all('panels');
   if (!S.panels.length) { const p = defaultPanel(); await DB.put('panels', p); S.panels = [p]; }
   for (const p of S.panels) if (migratePanel(p)) await DB.put('panels', p);
-  if (!DB.db) setTimeout(() => toast('Atenção: este browser não deixa guardar dados. Exporta uma cópia no fim.'), 800);
+  try {
+    const mir = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); const have = {}; (await DB.all('games')).forEach(x => have[x.id] = x);
+    let rec = 0; for (const x of Object.values(mir)) { if (!have[x.id] || (have[x.id].updated || 0) < (x.updated || 0)) { await DB.put('games', x); rec++; } }
+    if (rec && DB.db) setTimeout(() => toast(`${rec} jogo(s) recuperado(s) da cópia de segurança interna.`, 4000), 900);
+  } catch (e) { }
+  S.storageBad = !DB.db;
   if (!S.settings.seenHelp) setTimeout(() => { helpModal(); S.settings.seenHelp = true; DB.put('kv', S.settings); }, 300);
   try { const bk = await DB.get('kv', 'backupDir'); if (bk?.handle) { BK.dir = bk.handle; BK.ok = (await bk.handle.queryPermission({ mode: 'readwrite' })) === 'granted'; } } catch (e) { }
   document.addEventListener('keydown', onKey);
@@ -776,11 +835,13 @@ async function vHome() {
   };
   app().innerHTML = `
   <div class="topbar"><div class="brand grow">Observador <span>de Árbitros</span></div>
-    <button class="ghost sm" data-a="help">Ajuda</button><button class="ghost sm" data-a="stats">Estatísticas</button><button class="ghost sm" data-a="panels">Painéis</button><button class="ghost sm" data-a="settings">Definições</button></div>
+    <button class="ghost sm tb2" data-a="help">Ajuda</button><button class="ghost sm tb2" data-a="stats">Estatísticas</button><button class="ghost sm tb2" data-a="panels">Painéis</button><button class="ghost sm tb2" data-a="settings">Definições</button><button class="ghost hamb" data-hamb aria-label="Menu">☰</button></div>
   <div class="wrap">
     <div class="row w" style="margin-bottom:18px"><button class="pri" data-a="new">Novo jogo</button><span class="grow"></span>
-      <button class="ghost sm" data-a="demo">Jogo de demonstração</button><button class="ghost sm" data-a="import">Importar cópia</button><button class="ghost sm" data-a="exportall">Exportar tudo</button></div>
+      <button class="ghost sm tb2m" data-a="demo">Jogo de demonstração</button><button class="ghost sm tb2m" data-a="import">Importar cópia</button><button class="ghost sm tb2m" data-a="exportall">Exportar tudo</button></div>
     ${BK.dir && !BK.ok ? `<div class="card small row" style="margin-bottom:14px"><span class="grow">As cópias automáticas para a pasta escolhida estão em pausa até autorizares de novo.</span><button class="sm" data-a="resumebk">Retomar cópias</button></div>` : ''}
+    ${S.storageBad ? `<div class="card small" style="margin-bottom:14px;border-color:#ef4444"><b>Atenção:</b> este browser não está a deixar guardar os jogos de forma permanente. Usa "Exportar tudo" no fim de cada jogo.</div>` : ''}
+    ${/iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.standalone && !matchMedia('(display-mode: standalone)').matches ? `<div class="card small" style="margin-bottom:14px">No iPhone, usa sempre a aplicação a partir do ícone no ecrã principal (Partilhar › Adicionar ao ecrã principal). O Safari e o ícone guardam os jogos em sítios separados: o que registas num não aparece no outro.</div>` : ''}
     ${S.settings.observer ? '' : `<div class="card small" style="margin-bottom:14px">Começa por pôr o teu nome nas <a href="#" data-a="settings" style="color:var(--tx)">Definições</a>, para sair no relatório.</div>`}
     <div class="grid2">${S.games.map(card).join('') || `<div class="card"><b>Ainda não tens jogos.</b><p class="small muted">Cria o primeiro, ou explora um jogo de demonstração já preenchido para veres como funciona a revisão e o relatório.</p><button class="sm" data-a="demo">Abrir jogo de demonstração</button></div>`}</div>
     ${S.games.length && !S.games.some(g => g.demo) ? '' : ''}
@@ -850,8 +911,8 @@ function vSettings() {
     const th = e.target.closest('[data-th]'); if (th) { setTheme(th.dataset.th); $$('#s_theme button').forEach(x => x.classList.toggle('on', x === th)); return; }
     if (a === 'back') go('home');
     if (a === 'bkdir') { try { const h = await showDirectoryPicker({ mode: 'readwrite' }); BK.dir = h; BK.ok = true; await DB.put('kv', { id: 'backupDir', handle: h }); for (const g of await DB.all('games')) await backupGame(g); toast('Cópias automáticas ativas'); vSettings(); } catch (err) { if (err.name !== 'AbortError') toast('Não foi possível usar essa pasta'); } }
-    if (a === 'miclist') { try { await micStream(); const ds = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput'); const sel = $('#s_mic'); const cur = sel.value; sel.innerHTML = '<option value="">Predefinido do sistema</option>' + ds.map((d, ix) => `<option value="${esc(d.deviceId)}" ${d.deviceId === cur ? 'selected' : ''}>${esc(d.label || 'Microfone ' + (ix + 1))}</option>`).join(''); toast(ds.length + ' microfone(s) encontrado(s)'); } catch (e) { toast('Sem acesso ao microfone. Verifica as permissões do browser.'); } return; }
-    if (a === 'mictest') { const sel = $('#s_mic'); s.micId = sel.value; s.micLabel = sel.selectedOptions[0]?.textContent || ''; try { const st = await micStream(); REC.inc = { id: 'test' }; micMeter(st); toast('Fala para o microfone: a barra deve mexer.', 3000); setTimeout(() => { const ok = REC.peak >= 0.03; REC.inc = null; toast(ok ? 'Microfone a captar som.' : 'Não se ouviu nada. Escolhe outro microfone e testa de novo.', 4000); }, 4000); } catch (e) { toast('Sem acesso a esse microfone.'); } return; }
+    if (a === 'miclist') { try { await micStream(); const ds = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'audioinput'); releaseMic(); const sel = $('#s_mic'); const cur = sel.value; sel.innerHTML = '<option value="">Predefinido do sistema</option>' + ds.map((d, ix) => `<option value="${esc(d.deviceId)}" ${d.deviceId === cur ? 'selected' : ''}>${esc(d.label || 'Microfone ' + (ix + 1))}</option>`).join(''); toast(ds.length + ' microfone(s) encontrado(s)'); } catch (e) { toast('Sem acesso ao microfone. Verifica as permissões do browser.'); } return; }
+    if (a === 'mictest') { const sel = $('#s_mic'); s.micId = sel.value; s.micLabel = sel.selectedOptions[0]?.textContent || ''; try { const st = await micStream(); REC.inc = { id: 'test' }; micMeter(st); toast('Fala para o microfone: a barra deve mexer.', 3000); setTimeout(() => { const ok = REC.peak >= 0.03; REC.inc = null; releaseMic(); toast(ok ? 'Microfone a captar som.' : 'Não se ouviu nada. Escolhe outro microfone e testa de novo.', 4000); }, 4000); } catch (e) { toast('Sem acesso a esse microfone.'); } return; }
     if (a === 'bkoff') { BK.dir = null; BK.ok = false; await DB.del('kv', 'backupDir'); vSettings(); }
     if (a === 'save') {
       ['observer', 'assoc', 'epoca'].forEach(k => s[k] = $('#s_' + k).value.trim());
@@ -981,7 +1042,7 @@ function vSetup() {
     const m = e.target.closest('[data-m]'); if (m && !m.disabled) { mode = m.dataset.m; $$('#f_mode button').forEach(b => b.classList.toggle('on', b === m)); help(); return; }
     const a = e.target.closest('[data-a]')?.dataset.a;
     if (a === 'back') { if (isNew) go('home'); else go(S.backTo || 'live'); }
-    if (a === 'del') { if (await ask('Apagar este jogo e todos os incidentes?', 'Apagar', true)) { await DB.del('games', g.id); S.g = null; go('home'); } }
+    if (a === 'del') { if (await ask('Apagar este jogo e todos os incidentes?', 'Apagar', true)) { await DB.del('games', g.id); unmirrorGame(g.id); S.g = null; go('home'); } }
     if (a === 'repanel') { if (await ask('Trocar o painel deste jogo pela versão atual? Os incidentes já registados mantêm-se.', 'Trocar')) { const p = S.panels.find(p => p.id === g.panelId); if (p) { g.panel = clone(p); saveGame(true); toast('Painel atualizado'); } } }
     if (a === 'save') {
       const v = id => $('#' + id).value.trim();
@@ -1224,11 +1285,11 @@ function renderLiveBar() {
     ${pas.map(p => `<button class="phasebtn ${p.cls}" data-pa="${p.a}">${p.label}</button>`).join('')}
     <span class="grow"></span>
 
-    ${(g.clock.phase === 'int' || g.clock.phase === 'end' || g.clock.phase === 'pens') && listInc(g).length ? `<button class="sm ${listInc(g).some(i => needsInfo(g, i)) ? 'warnb' : ''}" data-a="complete">Completar lances${listInc(g).some(i => needsInfo(g, i)) ? ` (${listInc(g).filter(i => needsInfo(g, i)).length})` : ''}</button>` : ''}
+    ${(g.clock.phase === 'int' || g.clock.phase === 'end' || g.clock.phase === 'pens') && listInc(g).length ? `<button class="sm ${listInc(g).some(i => needsInfo(g, i)) ? 'warnb' : ''}" data-a="complete"><span class="mhide">Completar lances</span><span class="mshow">Completar</span>${listInc(g).some(i => needsInfo(g, i)) ? ` (${listInc(g).filter(i => needsInfo(g, i)).length})` : ''}</button>` : ''}
     <button class="ghost sm ${UNDO.some(u => u.gid === g.id) ? '' : 'hide'}" id="undobtn" data-a="undoinc" title="Anular o último registo (Ctrl+Z)">↶</button>
     ${g.clock.phase === 'end' ? '' : '<button class="ghost sm opt" data-a="review">Revisão</button>'}
     <button class="ghost sm opt" data-a="menu" title="Equipas, tempos, tema, ajuda e mais">⋯ Menu</button>
-    <button class="ghost sm mob" data-a="menu">Menu</button>`;
+    <button class="ghost mob hamb2" data-a="menu" aria-label="Menu">☰</button>`;
   updateClock(); renderTL(); if ($('#panel') && ($('#panel').dataset.phase !== g.clock.phase || g.clock.phase === 'end')) { $('#panel').dataset.phase = g.clock.phase; renderPanel(); renderFouls(); }
 }
 function updateClock() {
@@ -1667,6 +1728,7 @@ async function micStream() {
   MIC.stream = await navigator.mediaDevices.getUserMedia({ audio: want ? { deviceId: { exact: want } } : true }); MIC.dev = want;
   return MIC.stream;
 }
+function releaseMic() { try { MIC.stream && MIC.stream.getTracks().forEach(t => t.stop()); } catch (e) { } MIC.stream = null; }
 function micMeter(stream) {
   try {
     const AC = window.AudioContext || window.webkitAudioContext; REC.ac ||= new AC(); const ac = REC.ac; ac.resume && ac.resume();
@@ -1680,7 +1742,7 @@ async function startRec(inc, redraw) {
     const stream = await micStream(); micMeter(stream);
     const mr = new MediaRecorder(stream); const chunks = [];
     mr.ondataavailable = e => e.data.size && chunks.push(e.data);
-    mr.onstop = async () => { if (REC.peak != null && REC.peak < 0.03) toast('O microfone não captou som. Escolhe o microfone certo nas Definições.', 5000); const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' }); try { await DB.put('audio', { id: inc.id, blob }); inc.audio = true; saveGame(); toast('Nota de voz guardada', 1500); } catch (e) { toast('Não foi possível guardar o áudio'); } redraw && redraw(); };
+    mr.onstop = async () => { releaseMic(); if (REC.peak != null && REC.peak < 0.03) toast('O microfone não captou som. Escolhe o microfone certo nas Definições.', 5000); const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' }); try { await DB.put('audio', { id: inc.id, blob }); inc.audio = true; saveGame(); toast('Nota de voz guardada', 1500); } catch (e) { toast('Não foi possível guardar o áudio'); } redraw && redraw(); };
     REC.inc = inc; REC.mr = mr; REC.redraw = redraw; mr.start(); REC.t = setTimeout(stopRec, 60000); REC.t0 = Date.now(); redraw && redraw();
     clearInterval(REC.tick); REC.tick = setInterval(() => { const el = document.getElementById('rect'); if (!REC.inc) return clearInterval(REC.tick); if (el) { const s2 = Math.floor((Date.now() - REC.t0) / 1000); el.textContent = `${Math.floor(s2 / 60)}:${pad(s2 % 60)}`; } }, 250);
   } catch (e) { toast('Sem acesso ao microfone. Verifica as permissões do browser.'); }
@@ -1769,6 +1831,12 @@ function teamsModal() {
 }
 
 /* ---------- teclado ---------- */
+document.addEventListener('click', e => {
+  const h = e.target.closest('[data-hamb]'); if (!h) return; e.preventDefault(); e.stopPropagation();
+  const items = [...app().querySelectorAll('.tb2,.tb2m')];
+  const m = openModal(`<div class="sheethd"><span class="ttl grow">Menu</span><button class="ghost sm" data-x>Fechar</button></div><div style="display:grid;gap:8px">${items.map((b, ix) => `<button data-hi="${ix}" style="justify-content:flex-start">${esc(b.textContent.trim())}</button>`).join('')}</div>`);
+  m.addEventListener('click', ev => { if (ev.target.closest('[data-x]')) return closeModal(m); const x = ev.target.closest('[data-hi]'); if (x) { closeModal(m); items[+x.dataset.hi].click(); } });
+}, true);
 function onKey(e) {
   const tg = e.target; const typing = tg && (tg.tagName === 'INPUT' || tg.tagName === 'TEXTAREA' || tg.tagName === 'SELECT');
   const sheet = $$('.ov').pop()?.firstElementChild;
@@ -2038,7 +2106,7 @@ function vReview() {
   if (S.tab === 'rel') S.tab = 'nota';
   const tab = STEPS.some(x => x[0] === S.tab) ? S.tab : 'inc'; S.tab = tab;
   const st = stepState(g);
-  app().innerHTML = `<div class="topbar"><button class="ghost sm" data-a="home" title="Voltar à lista de jogos">‹ Jogos</button><div class="grow" style="min-width:0"><div class="brand" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(teamName(g, 'A'))} ${esc(g.report.resultado)} ${esc(teamName(g, 'B'))}</div><div class="muted small">${esc(g.competicao)}${g.jornada ? ` · ${g.jornada}.ª jornada` : ''} · ${esc(fmtDate(g.data))}</div></div><button class="ghost sm" data-a="guia" title="Abrir o ${ENT[entOf(g)].guia}">${ENT[entOf(g)].guia}</button><button class="ghost sm" data-a="addinc" title="Abrir o painel para registar mais lances">+ Adicionar lance</button><button class="pri sm" data-a="preview">Pré-visualizar relatório</button></div>
+  app().innerHTML = `<div class="topbar"><button class="ghost sm" data-a="home" title="Voltar à lista de jogos">‹<span class="mhide"> Jogos</span></button><div class="grow" style="min-width:0"><div class="brand" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(teamName(g, 'A'))} ${esc(g.report.resultado)} ${esc(teamName(g, 'B'))}</div><div class="muted small">${esc(g.competicao)}${g.jornada ? ` · ${g.jornada}.ª jornada` : ''} · ${esc(fmtDate(g.data))}</div></div><button class="ghost sm tb2" data-a="guia" title="Abrir o ${ENT[entOf(g)].guia}">${ENT[entOf(g)].guia}</button><button class="ghost sm tb2" data-a="addinc" title="Abrir o painel para registar mais lances">+ Adicionar lance</button><button class="pri sm" data-a="preview"><span class="mhide">Pré-visualizar relatório</span><span class="mshow">Relatório</span></button><button class="ghost hamb" data-hamb aria-label="Menu">☰</button></div>
   <div class="wrap">
     <div class="steps">${STEPS.map(([k, l], ix) => `<button data-tab="${k}" class="${tab === k ? 'on' : ''} ${st[k] ? 'done' : ''}"><span class="n">${st[k] && tab !== k ? '✓' : ix + 1}</span>${l}</button>`).join('<span class="sl"></span>')}</div>
     <div id="tabc"></div>
@@ -2074,7 +2142,7 @@ function syncBox(g) {
 function incRow(g, i) {
   const open = S.open === i.id; const vt = incVT(g, i); const type = incType(g, i); const auto = i.ment == null || i.ment === 'auto'; const m = mention(g, i);
   return `<div class="irow ${open ? 'open' : ''}" data-row="${i.id}">
-   <div class="ih" data-toggle="${i.id}"><button class="star ${i.meet ? 'on' : ''}" data-meet="${i.id}" title="Mostrar na reunião pedagógica">${i.meet ? '★' : '☆'}</button><span class="m">${esc(i.min)}</span><span class="bar" style="background:${tileColor(g, i)}"></span><span class="grow lab">${esc(shortText(g, i))}${needsInfo(g, i) ? '<span class="need">falta informação</span>' : ''}</span>${decPill(i)}${mentPill(g, i)}<button class="delinc" data-delinc="${i.id}" title="Apagar este lance">✕</button><span class="chev">${open ? '▴' : '▾'}</span></div>
+   <div class="ih" data-toggle="${i.id}"><button class="star ${i.meet ? 'on' : ''}" data-meet="${i.id}" title="Mostrar na reunião pedagógica">${i.meet ? '★' : '☆'}</button><span class="m">${esc(i.min)}</span><span class="bar" style="background:${tileColor(g, i)}"></span><span class="grow lab">${esc(shortText(g, i))}${needsInfo(g, i) ? '<span class="need">falta informação</span>' : ''}</span><span class="pills">${decPill(i)}${mentPill(g, i)}</span><button class="delinc" data-delinc="${i.id}" title="Apagar este lance">✕</button><span class="chev">${open ? '▴' : '▾'}</span></div>
    ${open ? `<div class="ib">
      <textarea data-notes="${i.id}" placeholder="Notas" style="min-height:48px">${esc(i.notes)}</textarea>
      ${tileOf(g, i).kind === 'subs' ? '<div class="hide">' : forcedPen(g, i) ? `<div style="margin-top:12px">${forcedHTML(g, i)}</div><div class="row w hide">` : `<label class="f" style="margin-top:12px">Avaliação</label>
@@ -2140,14 +2208,14 @@ function tabTxt() {
    <div class="card small"><b>Incidentes na 1.ª página</b>${rostoList(g).map(i => `<div style="padding:2px 0"><b style="display:inline-block;width:52px">${esc(i.min)}</b>${esc(frontText(g, i))}</div>`).join('') || '<div>Sem incidentes que justifiquem ser mencionados.</div>'}<div class="muted" style="margin-top:6px">Para mudar, usa "Entra no relatório?" em cada lance (passo 1).</div></div>
    <h2>A - Controlo e gestão técnica e disciplinar</h2>
    <div class="card">${pm(['A1', 'A2', 'A3'])}
-     <div class="chgrid">${Object.entries(CHAR).map(([k, c]) => `<div><label class="f">${c.label}</label>${chipRow('data-ch', Object.entries(c.opts).map(([v, o]) => [k + ':' + v, o[0]]), v => r.char[k] === v.split(':')[1])}</div>`).join('')}
-     <div><label class="f">Personalidade</label>${chipRow('data-pers', Object.entries(PERS).map(([k, x]) => [k, x[0]]), v => r.pers.includes(v))}</div></div>
+     <details class="mdet" ${matchMedia('(max-width:700px)').matches ? '' : 'open'}><summary>Escolhas para o rascunho <span class="muted small">(características do jogo e personalidade)</span></summary><div class="chgrid">${Object.entries(CHAR).map(([k, c]) => `<div><label class="f">${c.label}</label>${chipRow('data-ch', Object.entries(c.opts).map(([v, o]) => [k + ':' + v, o[0]]), v => r.char[k] === v.split(':')[1])}</div>`).join('')}
+     <div><label class="f">Personalidade</label>${chipRow('data-pers', Object.entries(PERS).map(([k, x]) => [k, x[0]]), v => r.pers.includes(v))}</div></div></details>
      ${ta('A')}</div>
    <h2>B - Condição física e movimentação/colocação</h2><div class="card">${pm(['B1', 'B2', 'B3'])}${ta('B')}</div>
    <h2>C - Colaboração entre a equipa de arbitragem</h2><div class="card">${pm(['C1', 'C2', 'C3'])}${ta('C')}</div>
    <h2>D - Enquadramento geral, análise crítica, conselhos e recomendações</h2>
-   <div class="card">${dInc.length ? dInc.map(i => { const mal = incType(g, i) === 'mal'; const opts = mal ? advCats(g, i).flatMap(c => ADV[c][1].map(x => [c + '|' + x[0], x[0]])) : POSADV.map(x => [x[0], x[0]]); return `<div class="drow"><div class="small"><b>${esc(i.min)}</b> ${esc(shortText(g, i))} <span class="muted">${mal ? '· o que deveria ter feito?' : '· o que valorizar?'}</span></div>${chipRow('data-adv', opts.map(([v, l]) => [i.id + '#' + v, l]), v => (i.adv || []).includes(v.split('#')[1]))}</div>`; }).join('') : '<div class="small muted">Não há lances a enquadrar (menos conseguidos ou valorizados).</div>'}
-     <div class="drow"><div class="small"><b>Conclusão</b> <span class="muted">(opcional)</span></div>${chipRow('data-concl', Object.entries(CONCL).map(([k, x]) => [k, x[0]]), v => r.concl.includes(v))}</div>
+   <div class="card"><details class="mdet" ${matchMedia('(max-width:700px)').matches ? '' : 'open'}><summary>Escolhas para o rascunho <span class="muted small">(conselhos por lance e conclusão)</span></summary>${dInc.length ? dInc.map(i => { const mal = incType(g, i) === 'mal'; const opts = mal ? advCats(g, i).flatMap(c => ADV[c][1].map(x => [c + '|' + x[0], x[0]])) : POSADV.map(x => [x[0], x[0]]); return `<div class="drow"><div class="small"><b>${esc(i.min)}</b> ${esc(shortText(g, i))} <span class="muted">${mal ? '· o que deveria ter feito?' : '· o que valorizar?'}</span></div>${chipRow('data-adv', opts.map(([v, l]) => [i.id + '#' + v, l]), v => (i.adv || []).includes(v.split('#')[1]))}</div>`; }).join('') : '<div class="small muted">Não há lances a enquadrar (menos conseguidos ou valorizados).</div>'}
+     <div class="drow"><div class="small"><b>Conclusão</b> <span class="muted">(opcional)</span></div>${chipRow('data-concl', Object.entries(CONCL).map(([k, x]) => [k, x[0]]), v => r.concl.includes(v))}</div></details>
      ${ta('D')}</div>
    <h2>3 - Pontos importantes do desempenho</h2>
    <div class="grid2" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
